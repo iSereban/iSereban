@@ -1,0 +1,9 @@
+# PyTorch с поддержкой CUDA ставится отдельно (см. install.bat / README),
+# здесь — остальные библиотеки.
+diffusers>=0.30
+transformers>=4.44
+accelerate>=0.33
+safetensors
+gradio>=4.40
+deep-translator>=1.11
+Pillow
