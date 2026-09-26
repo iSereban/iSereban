@@ -217,7 +217,7 @@ def floor(size=20, color=(0.55, 0.55, 0.57), col=None, name="Floor"):
 # ---------------------------------------------------------------------------
 # Рендер
 # ---------------------------------------------------------------------------
-def setup_render(engine="CYCLES", res=RES_480, samples=24, fps=FPS, motion_blur=False):
+def setup_render(engine="CYCLES", res=RES_480, samples=24, fps=FPS, motion_blur=False, exposure=0.0):
     sc = bpy.context.scene
     sc.render.resolution_x, sc.render.resolution_y = res
     sc.render.resolution_percentage = 100
@@ -234,6 +234,7 @@ def setup_render(engine="CYCLES", res=RES_480, samples=24, fps=FPS, motion_blur=
         sc.cycles.max_bounces = 4
     vt = [i.identifier for i in sc.view_settings.bl_rna.properties['view_transform'].enum_items]
     sc.view_settings.view_transform = 'AgX' if 'AgX' in vt else 'Filmic'
+    sc.view_settings.exposure = exposure
     return sc
 
 

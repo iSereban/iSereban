@@ -106,22 +106,24 @@ def main():
 
     arm = w.build()
     studio.studio_lights(target=(0, 0, 1.1))
-    studio.floor(color=(0.30, 0.30, 0.32))
-    studio.setup_render("CYCLES", studio.RES_480, samples)
+    studio.floor(color=(0.45, 0.40, 0.36))
+    studio.setup_render("CYCLES", studio.RES_480, samples, exposure=-0.3)
 
     cams = {
         "preview_front": studio.camera("Cam_Front", (0, -4.3, 1.0), (0, 0, 0.86), 50),
         "preview_34": studio.camera("Cam_34", (-2.3, -3.5, 1.3), (0, 0, 0.88), 50),
-        "preview_face": studio.camera("Cam_Face", (-0.22, -0.62, 1.58), (0, -0.03, 1.545), 55),
+        "preview_face": studio.camera("Cam_Face", (-0.22, -0.72, 1.57), (0, -0.03, 1.52), 55),
+        "preview_side": studio.camera("Cam_Side", (4.3, 0, 1.0), (0, 0, 0.86), 50),
     }
     # A-поза как в координатах
-    for name, cam in cams.items():
-        studio.render_still(os.path.join(out, f"{name}_apose.png"), cam)
+    studio.render_still(os.path.join(out, "preview_front_apose.png"), cams["preview_front"])
 
     relaxed_arms(arm)
-    for name in ("preview_front", "preview_34"):
+    w.face_key(arm, "smile", 0.9)
+    w.jaw_open(arm, 0.25)
+    for name in ("preview_front", "preview_34", "preview_side"):
         studio.render_still(os.path.join(out, f"{name}.png"), cams[name])
-    for key, fn in (("smile", lambda: w.face_key(arm, "smile", 1.0)),
+    for key, fn in (("smile", lambda: (w.face_key(arm, "smile", 0.9), w.jaw_open(arm, 0.25))),
                     ("talk", lambda: (w.jaw_open(arm, 0.8), w.face_key(arm, "mouth_O", 0.5))),
                     ("blink", lambda: w.blink(arm, 1.0))):
         w.face_key(arm, "smile", 0)
