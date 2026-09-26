@@ -31,8 +31,8 @@ def frame_camera(obj, lens=40, yaw=-35, pitch=18):
     hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
     center = (lo + hi) / 2
     radius = (hi - lo).length / 2
-    fov = 2 * math.atan(36 / 2 / lens)
-    dist = radius / math.sin(fov / 2) * 0.95
+    fov = 2 * math.atan(36 * 480 / 854 / 2 / lens)      # вертикальный угол кадра 16:9
+    dist = radius / math.sin(fov / 2) * 1.02
     a, b = math.radians(yaw), math.radians(pitch)
     loc = center + Vector((math.sin(a) * math.cos(b), -math.cos(a) * math.cos(b), math.sin(b))) * dist
     cam = studio.camera("Cam", loc, center, lens)
