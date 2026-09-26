@@ -205,6 +205,7 @@ class Motion:
         self.stride = 1.25 * self.leg              # длина цикла (2 шага)
         self.cycle = 1.0                           # с на цикл
         self.speed = self.stride / self.cycle
+        self.arm_style = "rest" if "joints" in lm else "swing"
         self.hip_rest = arm.data.bones["thigh.L"].head_local.z
         self.ankle_z = arm.data.bones["foot.L"].head_local.z
         fb = arm.data.bones["foot.L"]
@@ -286,6 +287,9 @@ class Motion:
             autorig.aim(arm, f"foot.{s}", F * math.cos(fa) - Z * math.sin(fa))
 
         # --- руки
+        if self.arm_style == "rest":
+            self._arms_from_rest(f, phase, step, squat, jarms, wave, F, Lv, Z)
+            return
         for s, sg, off in (("L", 1, math.pi), ("R", -1, 0.0)):
             swing = math.radians(28) * math.sin(phase + off) * step
             out = math.radians(18)
@@ -306,6 +310,39 @@ class Motion:
             autorig.aim(arm, f"upper_arm.{s}", ua)
             autorig.aim(arm, f"forearm.{s}", fa)
             autorig.aim(arm, f"hand.{s}", fa)
+
+    def _rest_dir(self, bone):
+        b = self.arm.data.bones[bone]
+        return (self.arm.matrix_world.to_3x3() @ (b.tail_local - b.head_local)).normalized()
+
+    def _arms_from_rest(self, f, phase, step, squat, jarms, wave, F, Lv, Z):
+        """Для моделей с «зафиксированными» руками (в карманах): лёгкие движения от исходной позы.
+        Левая рука остаётся в кармане, правая покачивается / поднимается / машет."""
+        from mathutils import Matrix as _M
+        arm = self.arm
+        rot = lambda v, axis, ang: _M.Rotation(ang, 3, axis) @ v   # noqa: E731
+        # левая: чуть-чуть покачивается вместе с корпусом
+        for b in ("upper_arm.L", "forearm.L"):
+            autorig.aim(arm, b, rot(self._rest_dir(b), Lv, math.radians(4) * math.sin(phase) * step))
+        # правая
+        sw = math.radians(16) * math.sin(phase) * step
+        ua = rot(self._rest_dir("upper_arm.R"), Lv, sw)
+        fa = rot(self._rest_dir("forearm.R"), Lv, sw * 1.3)
+        sq = squat
+        ua = ua.lerp(-Z * 0.6 + F * 0.8, sq * 0.6)
+        fa = fa.lerp(F, sq * 0.7)
+        up = max(jarms, wave)
+        if up > 0:
+            t = (f - WAVE[0]) / FPS
+            ua_up = (-Lv * 0.85 + Z * 0.45 + F * 0.1).normalized()          # в сторону-вверх
+            fa_up = (Z - Lv * 0.15 + F * 0.1).normalized()
+            if wave > 0:
+                fa_up = rot(fa_up, F, math.radians(28) * math.sin(2 * math.pi * 2.0 * t) * wave)
+            ua = ua.normalized().lerp(ua_up, up)
+            fa = fa.normalized().lerp(fa_up, up)
+        autorig.aim(arm, "upper_arm.R", ua)
+        autorig.aim(arm, "forearm.R", fa)
+        autorig.aim(arm, "hand.R", fa)
 
     def bake(self):
         arm = self.arm
@@ -412,8 +449,21 @@ def build(glb=None, height=None, turn=None):
     turn = float(turn if turn is not None else studio.arg("--turn", TURN))
     chcol = studio.collection("Character")
     obj = autorig.import_character(glb, height=H, turn_deg=turn, name="Character", col=chcol)
-    lm = autorig.find_landmarks(obj)
-    arm = autorig.build_rig(obj, lm, name="Character_Rig", col=chcol)
+    # суставы: из файла <имя модели>.joints.json (рядом со скриптом или с моделью), иначе — автопоиск
+    lm = None
+    base = os.path.splitext(os.path.basename(glb))[0] + ".joints.json"
+    for d in (_HERE, os.path.dirname(glb)):
+        jp = os.path.join(d, base)
+        if os.path.exists(jp):
+            import json
+            with open(jp, encoding="utf-8") as fh:
+                lm = autorig.landmarks_from_joints(json.load(fh), H)
+            print("joints from", jp)
+            break
+    if lm is None:
+        lm = autorig.find_landmarks(obj)
+    many = len(obj.data.vertices) > 60000       # bone heat на тяжёлых сетках медленный — сразу по расстоянию
+    arm = autorig.build_rig(obj, lm, name="Character_Rig", col=chcol, weights="distance" if many else "auto")
     print("landmarks:", {k: (round(v, 3) if isinstance(v, float) else v) for k, v in lm.items()
                          if k in ("H", "crotch", "neck", "shoulder_z", "torso_hw")})
     build_set(H)

@@ -236,12 +236,48 @@ def bone_layout(lm):
     return B
 
 
-def build_rig(obj, lm, name="Rig", col=None, weights="auto"):
+def landmarks_from_joints(J, H=1.0):
+    """Ориентиры/суставы, заданные вручную (JSON, рост 1.0) → масштаб H."""
+    k = H
+    lm = dict(H=H, W=H, cx=J.get("cx", 0.0) * k, crotch=J["crotch"] * k, neck=J["neck"] * k,
+              shoulder_z=J["L"]["shoulder"][2] * k, torso_hw=J["torso_hw"] * k, ymid=0.0,
+              hands={s: Vector(J[s]["hand"]) * k for s in "LR"}, legs={}, joints={})
+    for s in "LR":
+        lm["joints"][s] = {n: Vector(v) * k for n, v in J[s].items()}
+    lm["head_top"] = J.get("head_top", 1.0) * k
+    lm["chest"] = J.get("chest", (J["crotch"] + J["neck"]) / 2) * k
+    return lm
+
+
+def joint_layout(lm):
+    """Кости по явно заданным суставам."""
+    cx, cr, nk, H = lm["cx"], lm["crotch"], lm["neck"], lm["H"]
+    ch, top = lm["chest"], lm["head_top"]
+    B = {}
+    B["root"] = ((cx, 0, 0), (cx, -0.15 * H, 0), None)
+    B["hips"] = ((cx, 0, cr), (cx, 0, cr + 0.45 * (ch - cr)), "root")
+    B["spine"] = (B["hips"][1], (cx, 0, ch), "hips")
+    B["chest"] = (B["spine"][1], (cx, 0, nk - 0.03 * H), "spine")
+    B["neck"] = (B["chest"][1], (cx, 0, nk + 0.02 * H), "chest")
+    B["head"] = (B["neck"][1], (cx, 0, top), "neck")
+    for s in "LR":
+        j = lm["joints"][s]
+        B[f"shoulder.{s}"] = ((cx, 0, j["shoulder"].z), tuple(j["shoulder"]), "chest")
+        B[f"upper_arm.{s}"] = (tuple(j["shoulder"]), tuple(j["elbow"]), f"shoulder.{s}")
+        B[f"forearm.{s}"] = (tuple(j["elbow"]), tuple(j["wrist"]), f"upper_arm.{s}")
+        B[f"hand.{s}"] = (tuple(j["wrist"]), tuple(j["hand"]), f"forearm.{s}")
+        B[f"thigh.{s}"] = (tuple(j["hip"]), tuple(j["knee"]), "hips")
+        B[f"shin.{s}"] = (tuple(j["knee"]), tuple(j["ankle"]), f"thigh.{s}")
+        B[f"foot.{s}"] = (tuple(j["ankle"]), tuple(j["toe"]), f"shin.{s}")
+    return B
+
+
+def build_rig(obj, lm, name="Rig", col=None, weights="auto"):  # weights: "auto" | "distance"
     arm_data = bpy.data.armatures.new(name)
     arm = bpy.data.objects.new(name, arm_data)
     (col or bpy.context.scene.collection).objects.link(arm)
     arm.show_in_front = True
-    B = bone_layout(lm)
+    B = joint_layout(lm) if "joints" in lm else bone_layout(lm)
     with bpy.context.temp_override(active_object=arm, object=arm):
         bpy.context.view_layer.objects.active = arm
         bpy.ops.object.mode_set(mode='EDIT')
@@ -302,16 +338,45 @@ def distance_weights(obj, arm, lm):
         D[:, j] = np.linalg.norm(co - (a + np.outer(t, ab)), axis=1)
     names = [s[0] for s in segs]
     big = 1e3
-    ax = np.abs(co[:, 0])
+    cx = lm.get("cx", 0.0)
+    ax = np.abs(co[:, 0] - cx)
+    behind = co[:, 1] > lm.get("ymid", 0.0) + 0.07 * H          # волосы/капюшон за спиной
     for j, n in enumerate(names):
         if n.startswith(("shoulder", "upper_arm", "forearm", "hand")):
             D[ax < lm["torso_hw"] * 0.75, j] += big            # руки — только снаружи торса
+            D[D[:, j] > 0.075 * H, j] += big                   # и только в «капсуле» вокруг кости
+            D[behind, j] += big
         if n.startswith(("thigh", "shin", "foot")):
             D[co[:, 2] > lm["crotch"] + 0.06 * H, j] += big     # ноги — только ниже пояса
             side = 1 if n.endswith(".L") else -1
-            D[co[:, 0] * side < -0.01 * H, j] += big            # и только своей стороны
+            D[(co[:, 0] - cx) * side < -0.01 * H, j] += big     # и только своей стороны
+            D[D[:, j] > 0.12 * H, j] += big
         if n == "head":
-            D[co[:, 2] > lm["neck"] + 0.03 * H, j] = 0.0        # вся голова — на кость head
+            D[co[:, 2] > lm["neck"] + 0.03 * H, j] = 0.0        # вся голова (с волосами) — на кость head
+    # рука влияет только на вершины, связанные рёбрами с плечом (рукав+кисть),
+    # а не на касающиеся её штаны/ремни
+    ev = np.empty(len(obj.data.edges) * 2, dtype=np.int64)
+    obj.data.edges.foreach_get("vertices", ev)
+    ev = ev.reshape(-1, 2)
+    for side in ("L", "R"):
+        cols = [j for j, n in enumerate(names) if n.endswith("." + side) and
+                n.startswith(("shoulder", "upper_arm", "forearm", "hand"))]
+        if not cols:
+            continue
+        cand = D[:, cols].min(axis=1) < 0.075 * H
+        ua = names.index(f"upper_arm.{side}")
+        reached = cand & (D[:, ua] < 0.035 * H)
+        for _ in range(2000):
+            a, b = reached[ev[:, 0]], reached[ev[:, 1]]
+            grow = np.zeros_like(reached)
+            grow[ev[a & ~b, 1]] = True
+            grow[ev[b & ~a, 0]] = True
+            grow &= cand & ~reached
+            if not grow.any():
+                break
+            reached |= grow
+        for j in cols:
+            D[~reached, j] += big
     D = np.maximum(D, 1e-4)
     order = np.argsort(D, axis=1)[:, :3]
     groups = {n: obj.vertex_groups.new(name=n) for n in names}
