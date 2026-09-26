@@ -527,32 +527,14 @@ def add_cyl_y(bm, center, radius, depth, segs=32):
     return geom["verts"]
 
 
-def build_bogie(name, mats):
+def _merge_parts(name, parts, mat_list):
+    """parts: [(bmesh, material_index)] -> mesh."""
     me = bpy.data.meshes.new(name)
-    bm_frame, bm_wheel, bm_steel = bmesh.new(), bmesh.new(), bmesh.new()
-    half = BOGIE_WHEELBASE / 2
-    wy = GAUGE / 2 + 0.035
-    # рама: боковины + поперечная балка
-    for sy in (-1, 1):
-        add_box(bm_frame, (0, sy * 1.02, 0.62), (3.3, 0.22, 0.30))
-        for sx in (-1, 1):  # буксы
-            add_box(bm_frame, (sx * half, sy * 1.02, 0.46), (0.40, 0.26, 0.30))
-    add_box(bm_frame, (0, 0, 0.66), (0.5, 2.1, 0.28))
-    # колёсные пары
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            add_cyl_y(bm_wheel, (sx * half, sy * wy, WHEEL_RADIUS), WHEEL_RADIUS, 0.135, 48)
-            add_cyl_y(bm_steel, (sx * half, sy * (wy - 0.25), WHEEL_RADIUS), 0.32, 0.06, 32)  # тормозной диск
-        add_cyl_y(bm_steel, (sx * half, 0, WHEEL_RADIUS), 0.085, 2.25, 24)
-    # пружины (упрощённо)
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            add_cyl_y(bm_steel, (sx * 0.45, sy * 1.02, 0.88), 0.12, 0.2, 16)
-
     bm = bmesh.new()
-    for i, part in enumerate((bm_frame, bm_wheel, bm_steel)):
+    for part, mi in parts:
         for f in part.faces:
-            f.material_index = i
+            f.material_index = mi
+            f.smooth = False
         tmp = bpy.data.meshes.new("tmp")
         part.to_mesh(tmp)
         bm.from_mesh(tmp)
@@ -560,9 +542,43 @@ def build_bogie(name, mats):
         part.free()
     bm.to_mesh(me)
     bm.free()
-    for k in ("dark", "steel", "steel"):
-        me.materials.append(mats[k])
+    for m in mat_list:
+        me.materials.append(m)
     return me
+
+
+def build_wheelset(name, mats):
+    """Колёсная пара, центр оси в начале координат, ось вращения — Y."""
+    wy = GAUGE / 2 + 0.035
+    bm_wheel, bm_steel, bm_dark = bmesh.new(), bmesh.new(), bmesh.new()
+    for sy in (-1, 1):
+        add_cyl_y(bm_wheel, (0, sy * wy, 0), WHEEL_RADIUS, 0.135, 48)
+        add_cyl_y(bm_dark, (0, sy * (wy + 0.07), 0), WHEEL_RADIUS * 0.78, 0.01, 32)  # диск колеса
+        add_cyl_y(bm_steel, (0, sy * (wy + 0.078), 0), 0.12, 0.012, 16)                # ступица
+        for k in range(6):  # отверстия/метки, чтобы видно было вращение
+            a = k * math.pi / 3
+            c = Vector((math.cos(a) * 0.24, sy * (wy + 0.078), math.sin(a) * 0.24))
+            add_cyl_y(bm_steel, c, 0.045, 0.012, 10)
+        add_cyl_y(bm_steel, (0, sy * (wy - 0.25), 0), 0.32, 0.06, 32)  # тормозной диск
+    add_cyl_y(bm_steel, (0, 0, 0), 0.085, 2.25, 24)
+    return _merge_parts(name, [(bm_wheel, 0), (bm_dark, 1), (bm_steel, 0)],
+                        [mats["steel"], mats["dark"]])
+
+
+def build_bogie(name, mats):
+    """Рама тележки (без колёсных пар)."""
+    bm = bmesh.new()
+    half = BOGIE_WHEELBASE / 2
+    for sy in (-1, 1):
+        add_box(bm, (0, sy * 1.02, 0.62), (3.3, 0.22, 0.30))
+        for sx in (-1, 1):  # буксы
+            add_box(bm, (sx * half, sy * 1.02, 0.46), (0.40, 0.26, 0.30))
+    add_box(bm, (0, 0, 0.66), (0.5, 2.1, 0.28))
+    bm_s = bmesh.new()
+    for sx in (-1, 1):  # пружины (упрощённо)
+        for sy in (-1, 1):
+            add_cyl_y(bm_s, (sx * 0.45, sy * 1.02, 0.88), 0.12, 0.2, 16)
+    return _merge_parts(name, [(bm, 0), (bm_s, 1)], [mats["dark"], mats["steel"]])
 
 
 # ---------------------------------------------------------------------------
@@ -691,8 +707,14 @@ def build_train(with_track=True):
     scene = bpy.context.scene
     train_col = bpy.data.collections.new("Sapsan_Velaro_RUS")
     scene.collection.children.link(train_col)
+    # общий «риг» состава: двигать/анимировать весь поезд — через него
+    rig = bpy.data.objects.new("Sapsan_Rig", None)
+    rig.empty_display_type = 'PLAIN_AXES'
+    rig.empty_display_size = 5
+    train_col.objects.link(rig)
 
     bogie_mesh = build_bogie("Bogie", mats)
+    wheelset_mesh = build_wheelset("Wheelset", mats)
     gangway_mesh = build_gangway("Gangway", mats)
     panto_mesh = build_pantograph("Pantograph", mats)
     windshield_mesh = build_windshield(mats)
@@ -711,6 +733,7 @@ def build_train(with_track=True):
         root = bpy.data.objects.new(f"{name}_Root", None)
         col.objects.link(root)
         root.empty_display_type = 'ARROWS'
+        root.parent = rig
 
         body_me = build_body_mesh(f"{name}_Body", length, head, mats)
         body = new_object(f"{name}_Body", body_me, col, root)
@@ -726,6 +749,9 @@ def build_train(with_track=True):
         for j, bx in enumerate(bogies):
             b = new_object(f"{name}_Bogie{j + 1}", bogie_mesh, col, root)
             b.location.x = bx
+            for w, sx in enumerate((-1, 1)):
+                ws = new_object(f"{name}_Bogie{j + 1}_Wheelset{w + 1}", wheelset_mesh, col, b)
+                ws.location = (sx * BOGIE_WHEELBASE / 2, 0, WHEEL_RADIUS)
         if i in PANTOGRAPH_CARS:
             p = new_object(f"{name}_Pantograph", panto_mesh, col, root)
             p.location.x = length / 2
@@ -740,7 +766,7 @@ def build_train(with_track=True):
             root.location.x = x0
 
         if i < n - 1:
-            g = new_object(f"Gangway_{i + 1:02d}_{i + 2:02d}", gangway_mesh, train_col)
+            g = new_object(f"Gangway_{i + 1:02d}_{i + 2:02d}", gangway_mesh, train_col, rig)
             g.location.x = x1
 
     if with_track:
