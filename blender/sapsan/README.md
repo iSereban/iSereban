@@ -15,7 +15,7 @@
 | `out/preview_*.png` | контрольные рендеры |
 | `sapsan_cinematic.py` | ролик 30 с: поезд едет, 7 планов камеры со склейками |
 | `out/sapsan_cinematic.blend` | готовая сцена ролика (EEVEE, 1920×1080, 25 fps, 750 кадров) |
-| `out/sapsan_cinematic_preview.mp4` | превью ролика 960×540 (отрендерено в облаке на CPU) |
+| `out/sapsan_cinematic_preview.mp4` | превью 960×540, первые 11,6 с (планы 1–3; облачный CPU-рендер остановлен) |
 
 ## Как открыть
 
