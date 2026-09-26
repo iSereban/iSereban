@@ -261,13 +261,19 @@ def output_video(path_prefix="//render/video_"):
 
 
 def render_still(path, cam=None):
+    """PNG или JPEG — по расширению пути (.jpg — компактнее для скриншотов)."""
     sc = bpy.context.scene
     if cam:
         sc.camera = cam
     ims = sc.render.image_settings
     if hasattr(ims, "media_type"):
         ims.media_type = 'IMAGE'
-    ims.file_format = 'PNG'
+    if path.lower().endswith((".jpg", ".jpeg")):
+        ims.file_format = 'JPEG'
+        ims.quality = 90
+    else:
+        ims.file_format = 'PNG'
+    sc.render.use_file_extension = False
     sc.render.filepath = path
     bpy.ops.render.render(write_still=True)
 
