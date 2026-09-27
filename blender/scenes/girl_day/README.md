@@ -19,4 +19,6 @@ python girl_day.py --part room   --glb <девочка.glb> --out out --render  
 python girl_day.py --part street --glb <девочка.glb> --out out --render         # кадры 1–600
 python girl_day.py --join --out out                                             # → out/girl_day.mp4
 ```
-В Blender: `blender.exe -b -P girl_day.py -- --part room --glb ... --out out --render`
+**На своём ПК (видеокарта):** двойной щелчок по `render_girl_day.bat` — рендерит обе части на GPU (`--gpu`),
+потом склеивает их средствами Blender в `out\girl_day_0001-1500.mp4`. Рендер можно прервать и запустить снова —
+готовые кадры пропускаются.

@@ -10,7 +10,6 @@
   python girl_day.py --join --out out                                               склейка в girl_day.mp4
 """
 import os
-import subprocess
 import sys
 
 import bpy  # noqa: I001
@@ -63,7 +62,33 @@ def build(part):
     sc.render.use_persistent_data = True
     sc.render.image_settings.file_format = 'JPEG'
     sc.render.image_settings.quality = 92
+    if studio.flag("--gpu"):
+        use_gpu()
     return g, shots, mod
+
+
+def use_gpu():
+    """Cycles на видеокарте (OptiX / CUDA / HIP / oneAPI / Metal — что найдётся)."""
+    sc = bpy.context.scene
+    try:
+        prefs = bpy.context.preferences.addons["cycles"].preferences
+    except KeyError:
+        print("Cycles addon не найден — рендер на процессоре")
+        return
+    for kind in ("OPTIX", "CUDA", "HIP", "ONEAPI", "METAL"):
+        try:
+            prefs.compute_device_type = kind
+        except TypeError:
+            continue
+        prefs.get_devices()
+        devs = [d for d in prefs.devices if d.type == kind]
+        if devs:
+            for d in prefs.devices:
+                d.use = d.type == kind
+            sc.cycles.device = 'GPU'
+            print("GPU:", kind, ", ".join(d.name for d in devs))
+            return
+    print("GPU не найден — рендер на процессоре")
 
 
 def camera_at(shots, f):
@@ -110,22 +135,41 @@ def main():
 
 
 def join(out):
-    """Склейка: комната + улица → girl_day.mp4 (fade in/out)."""
-    lst = []
-    for part in ("room", "street"):
-        d = os.path.join(out, f"frames_{part}")
-        mp4 = os.path.join(out, f"{part}.mp4")
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", "25", "-i", os.path.join(d, "%04d.jpg"),
-                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", mp4], check=True)
-        lst.append(mp4)
-    listfile = os.path.join(out, "list.txt")
-    with open(listfile, "w") as fh:
-        fh.writelines(f"file '{p}'\n" for p in lst)
-    final = os.path.join(out, "girl_day.mp4")
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", listfile,
-                    "-vf", "fade=t=in:st=0:d=0.8,fade=t=out:st=59.2:d=0.8", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                    "-crf", "18", final], check=True)
-    print("saved", final)
+    """Склейка кадров комнаты и улицы в girl_day.mp4 средствами Blender (ffmpeg не нужен)."""
+    import glob
+    sc = bpy.context.scene
+    for s in list(bpy.data.scenes):
+        if s != sc:
+            bpy.data.scenes.remove(s)
+    se = sc.sequence_editor_create()
+    strips = getattr(se, "strips", None)
+    if strips is None:
+        strips = se.sequences
+    frame = 1
+    for ch, part in enumerate(("room", "street"), start=1):
+        files = sorted(glob.glob(os.path.join(out, f"frames_{part}", "*.jpg")))
+        if not files:
+            print("нет кадров:", part)
+            continue
+        st = strips.new_image(part, files[0], channel=ch, frame_start=frame)
+        for f in files[1:]:
+            st.elements.append(os.path.basename(f))
+        frame += len(files)
+    sc.frame_start, sc.frame_end = 1, frame - 1
+    sc.render.fps = 25
+    sc.render.resolution_x, sc.render.resolution_y = studio.RES_480
+    sc.render.resolution_percentage = 100
+    ims = sc.render.image_settings
+    if hasattr(ims, "media_type"):
+        ims.media_type = 'VIDEO'
+    ims.file_format = 'FFMPEG'
+    sc.render.ffmpeg.format = 'MPEG4'
+    sc.render.ffmpeg.codec = 'H264'
+    sc.render.ffmpeg.constant_rate_factor = 'HIGH'
+    sc.render.use_sequencer = True
+    sc.render.filepath = os.path.join(out, "girl_day_")
+    bpy.ops.render.render(animation=True)
+    print("saved video in", out)
 
 
 if __name__ == "__main__":
