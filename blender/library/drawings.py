@@ -236,8 +236,10 @@ def draw_object(spec, path):
 def all_specs():
     import catalog_city
     import catalog_furniture
+    import catalog_girl
     specs, seen = [], set()
-    for f in list(catalog_furniture.CATALOG.values()) + list(catalog_city.CATALOG.values()):
+    for f in list(catalog_furniture.CATALOG.values()) + list(catalog_city.CATALOG.values()) + \
+            list(catalog_girl.CATALOG.values()):
         s = f()
         if s["name"] not in seen:
             seen.add(s["name"])
