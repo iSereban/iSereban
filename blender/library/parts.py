@@ -118,6 +118,30 @@ def material(name):
         wv.inputs["Scale"].default_value = 6.0
         nt.links.new(tc.outputs["Object"], wv.inputs["Vector"])
         color_out = ramp_between(wv.outputs["Fac"], c, (0.8, 0.78, 0.74), 0.49, 0.51)
+    elif spec.get("bark"):
+        # вертикальные трещины коры
+        mp = nt.nodes.new("ShaderNodeMapping")
+        mp.inputs["Scale"].default_value = (18, 18, 2.5)
+        nt.links.new(tc.outputs["Object"], mp.inputs["Vector"])
+        nz = nt.nodes.new("ShaderNodeTexNoise")
+        nz.inputs["Scale"].default_value = 3.0
+        nz.inputs["Detail"].default_value = 8.0
+        nt.links.new(mp.outputs["Vector"], nz.inputs["Vector"])
+        color_out = ramp_between(nz.outputs["Fac"], tuple(v * 0.45 for v in c), light, 0.35, 0.65)
+        bump = nt.nodes.new("ShaderNodeBump")
+        bump.inputs["Strength"].default_value = 0.8
+        nt.links.new(nz.outputs["Fac"], bump.inputs["Height"])
+        nt.links.new(bump.outputs["Normal"], b.inputs["Normal"])
+    elif spec.get("birch"):
+        # белая кора с тёмными горизонтальными чечевичками
+        mp = nt.nodes.new("ShaderNodeMapping")
+        mp.inputs["Scale"].default_value = (3, 3, 45)
+        nt.links.new(tc.outputs["Object"], mp.inputs["Vector"])
+        nz = nt.nodes.new("ShaderNodeTexNoise")
+        nz.inputs["Scale"].default_value = 2.0
+        nz.inputs["Detail"].default_value = 4.0
+        nt.links.new(mp.outputs["Vector"], nz.inputs["Vector"])
+        color_out = ramp_between(nz.outputs["Fac"], (0.02, 0.02, 0.02), c, 0.30, 0.36)
     elif spec.get("noise") or spec.get("fabric"):
         nz = nt.nodes.new("ShaderNodeTexNoise")
         nz.inputs["Scale"].default_value = 40.0 if spec.get("fabric") else 3.0
@@ -137,6 +161,21 @@ def material(name):
         b.inputs["Alpha"].default_value = spec["alpha"]
         if hasattr(mat, "blend_method"):
             mat.blend_method = 'BLEND'
+    if spec.get("leafy"):
+        # листва: часть света проходит насквозь (как у настоящих листьев на солнце)
+        out = nt.nodes["Material Output"]
+        tr = nt.nodes.new("ShaderNodeBsdfTranslucent")
+        tr.inputs["Color"].default_value = (min(c[0] * 1.6, 1), min(c[1] * 2.0, 1), min(c[2] * 1.2, 1), 1)
+        mix = nt.nodes.new("ShaderNodeMixShader")
+        mix.inputs["Fac"].default_value = 0.35
+        nt.links.new(b.outputs["BSDF"], mix.inputs[1])
+        nt.links.new(tr.outputs["BSDF"], mix.inputs[2])
+        nt.links.new(mix.outputs["Shader"], out.inputs["Surface"])
+        nz = nt.nodes.new("ShaderNodeTexNoise")
+        nz.inputs["Scale"].default_value = 0.8
+        nt.links.new(tc.outputs["Object"], nz.inputs["Vector"])
+        cr = ramp_between(nz.outputs["Fac"], tuple(v * 0.75 for v in c), tuple(min(v * 1.3, 1) for v in c), 0.3, 0.7)
+        nt.links.new(cr, b.inputs["Base Color"])
     if "glow" in spec:
         key = "Emission Color" if "Emission Color" in b.inputs else "Emission"
         b.inputs[key].default_value = (*spec["glow"], 1)
@@ -175,6 +214,13 @@ def _part_bmesh(part):
                                   radius=1.0)
         for v in bm.verts:
             v.co = Vector((v.co.x * rx, v.co.y * ry, v.co.z * rz))
+    elif t == "mesh":
+        vs = [bm.verts.new(Vector(v) * MM) for v in part["v"]]
+        for f in part["f"]:
+            try:
+                bm.faces.new([vs[i] for i in f])
+            except ValueError:
+                pass
     elif t == "text":
         cu = bpy.data.curves.new("txt", 'FONT')
         cu.body = part["text"]
@@ -214,7 +260,7 @@ def build_mesh(spec, name=None):
             mats.append(m)
         for f in pb.faces:
             f.material_index = index[m]
-            f.smooth = part["t"] in ("cyl", "cone", "sph") or part.get("b", 0) > 0
+            f.smooth = part.get("smooth", part["t"] in ("cyl", "cone", "sph", "mesh") or part.get("b", 0) > 0)
         tmp = bpy.data.meshes.new("tmp")
         pb.to_mesh(tmp)
         pb.free()
@@ -268,6 +314,12 @@ def bbox_mm(spec):
                 d = p["h"]
         elif p["t"] == "sph":
             w, d, h = (2 * v for v in p["s"])
+        elif p["t"] == "mesh":
+            vs = p["v"]
+            xs += [v[0] + x for v in vs]
+            ys += [v[1] + y for v in vs]
+            zs += [v[2] + z for v in vs]
+            continue
         else:  # text
             w, d, h = p.get("size", 200) * 0.7 * len(p["text"]), p.get("depth", 20), p.get("size", 200)
         xs += [x - w / 2, x + w / 2]

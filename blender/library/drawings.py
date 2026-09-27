@@ -56,6 +56,10 @@ def part_points(part):
                 a = 2 * math.pi * k / 16
                 pts.append((rx * math.sin(th) * math.cos(a), ry * math.sin(th) * math.sin(a), rz * math.cos(th)))
         pts += [(0, 0, rz), (0, 0, -rz)]
+    elif t == "mesh":
+        vs = part["v"]
+        step = max(1, len(vs) // 3000)
+        pts = [tuple(v) for v in vs[::step]]
     elif t == "text":
         s = part.get("size", 200)
         w = 0.62 * s * len(part["text"])
@@ -106,6 +110,16 @@ VIEWS = {
 }
 
 
+def _scale_mm(ax):
+    """Сколько мм модели в одном мм бумаги (грубо, до установки пределов берём 1)."""
+    try:
+        x0, x1 = ax.get_xlim()
+        w_in = ax.get_window_extent().width / ax.figure.dpi
+        return (x1 - x0) / (w_in * 25.4)
+    except Exception:
+        return 1.0
+
+
 def draw_view(ax, spec, view, dims=True):
     (ia, ib), idepth, sgn, label = VIEWS[view]
     items = []
@@ -116,8 +130,29 @@ def draw_view(ax, spec, view, dims=True):
     # дальние — раньше (перекрываются ближними): спереди дальше — большой Y,
     # слева дальше — большой X, сверху дальше — малый Z
     items.sort(key=lambda it: it[0])
+    _X = [p[ia] for _d, _p, pts in items for p in pts]
+    _Y = [p[ib] for _d, _p, pts in items for p in pts]
+    _pad = max(max(_X) - min(_X), max(_Y) - min(_Y)) * 0.12 + 30
+    ax.set_xlim(min(_X) - _pad, max(_X) + _pad)
+    ax.set_ylim(min(_Y) - _pad, max(_Y) + _pad)
+    ax.set_aspect("equal")
     allx, ally = [], []
     for _d, part, pts in items:
+        if part.get("draw") == "skeleton":
+            for sg in part["segs"]:
+                a, b = sg[0:3], sg[3:6]
+                lw = max(0.3, (sg[6] + sg[7]) / 2 * 2 * 72 / 25.4 / max(1.0, _scale_mm(ax)))
+                ax.plot([a[ia], b[ia]], [a[ib], b[ib]], color=srgb(PALETTE[part["m"]]["c"]), lw=lw,
+                        solid_capstyle="round", zorder=2)
+            allx += [v[ia] for v in pts]
+            ally += [v[ib] for v in pts]
+            continue
+        if part.get("draw") == "crown":
+            col = srgb(PALETTE.get(part.get("m"), {"c": (0.2, 0.5, 0.2)})["c"])
+            ax.scatter([v[ia] for v in pts], [v[ib] for v in pts], s=2.5, color=col, alpha=0.55, lw=0, zorder=3)
+            allx += [v[ia] for v in pts]
+            ally += [v[ib] for v in pts]
+            continue
         h2 = hull([(p[ia], p[ib]) for p in pts])
         allx += [q[0] for q in h2]
         ally += [q[1] for q in h2]
@@ -201,8 +236,12 @@ def draw_object(spec, path):
 def all_specs():
     import catalog_city
     import catalog_furniture
-    specs = [f() for f in catalog_furniture.CATALOG.values()]
-    specs += [f() for f in catalog_city.CATALOG.values()]
+    specs, seen = [], set()
+    for f in list(catalog_furniture.CATALOG.values()) + list(catalog_city.CATALOG.values()):
+        s = f()
+        if s["name"] not in seen:
+            seen.add(s["name"])
+            specs.append(s)
     return specs
 
 

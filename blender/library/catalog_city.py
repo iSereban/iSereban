@@ -178,14 +178,21 @@ def car(color="car_white", name="car_sedan"):
     return spec(name, "Легковой автомобиль", "Транспорт", p, "длина 4,4 м")
 
 
+import trees as _trees  # noqa: E402  реалистичные деревья (липа, берёза, ель)
+
 CATALOG = {
     "house_5fl": house_5fl, "house_9fl": house_9fl, "shop_produkty": shop_produkty, "shop_apteka": shop_apteka,
     "cafe": cafe, "bakery": bakery, "kiosk": kiosk, "bus_stop": bus_stop, "streetlight": streetlight,
-    "traffic_light": traffic_light, "tree": tree, "tree_birch": lambda: tree("birch"), "bench": bench,
+    "traffic_light": traffic_light, "bench": bench,
     "trash_bin": trash_bin, "car_sedan": car,
     "car_red": lambda: car("car_red", "car_red"), "car_blue": lambda: car("car_blue", "car_blue"),
     "car_yellow": lambda: car("car_yellow", "car_yellow"),
 }
+
+
+CATALOG.update(_trees.CATALOG)
+CATALOG["tree"] = CATALOG["tree_linden_1"]            # совместимость со старыми расстановками
+CATALOG["tree_birch"] = CATALOG["tree_birch_1"]
 
 
 def get(code, /, **kw):

@@ -88,8 +88,16 @@ def main():
     out = os.path.join(HERE, "out")
     prev = os.path.join(out, "previews")
     os.makedirs(prev, exist_ok=True)
-    furn = [f() for f in catalog_furniture.CATALOG.values()]
-    city = [f() for f in catalog_city.CATALOG.values()]
+    def uniq(cat):
+        out, seen = [], set()
+        for f in cat.values():
+            s = f()
+            if s["name"] not in seen:
+                seen.add(s["name"])
+                out.append(s)
+        return out
+    furn = uniq(catalog_furniture.CATALOG)
+    city = uniq(catalog_city.CATALOG)
     if not studio.flag("--no-previews"):
         for s in furn + city:
             if only and s["name"] not in only:

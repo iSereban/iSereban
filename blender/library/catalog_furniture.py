@@ -164,6 +164,11 @@ def carpet(w=3000, d=2000, m="carpet_red", name="carpet", title="Ковёр"):
 
 
 def plant_ficus():
+    import trees
+    return trees.ficus()
+
+
+def plant_ficus_simple():
     p = [CO(170, 220, 360, 0, 0, 0, "terracotta", seg=24), C(200, 10, 0, 0, 340, "soil"), C(22, 800, 0, 0, 350, "trunk")]
     import random
     rng = random.Random(4)

@@ -81,6 +81,25 @@ LAYOUT += [("bench", -30.0, 31.0, 180, ""), ("bench", -50.0, 31.0, 180, ""), ("t
            ("bench", 22.0, 34.0, 180, ""), ("trash_bin", 23.5, 34.5, 0, "")]
 
 
+def _variety(layout):
+    """Разнообразие деревьев: «tree» → липа 1–3, «tree_birch» → берёза 1–2."""
+    out = []
+    for i, (name, x, y, rot, label) in enumerate(layout):
+        if name == "tree":
+            name = f"tree_linden_{1 + (i * 7 + int(x)) % 3}"
+            rot = (i * 53) % 360
+        elif name == "tree_birch":
+            name = f"tree_birch_{1 + (i + int(y)) % 2}"
+            rot = (i * 71) % 360
+        out.append((name, x, y, rot, label))
+    return out
+
+
+LAYOUT += [("tree_spruce_1", -56.0, 44.0, 0, ""), ("tree_spruce_1", -8.0, 44.0, 40, ""),
+           ("tree_spruce_1", 58.0, 36.0, 80, ""), ("tree_spruce_1", -56.0, -44.0, 20, "")]
+LAYOUT = _variety(LAYOUT)
+
+
 def ground_spec():
     """Земля, проезжая часть, тротуары с бордюрами, разметка и зебры (мм)."""
     B = cf.B

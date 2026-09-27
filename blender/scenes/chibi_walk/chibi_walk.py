@@ -30,6 +30,7 @@ _sd = getattr(bpy.context, "space_data", None)
 if _sd is not None and getattr(_sd, "text", None) is not None and _sd.text.filepath:
     _HERE = os.path.dirname(bpy.path.abspath(_sd.text.filepath))
 sys.path.insert(0, os.path.join(_HERE, "..", "..", "common"))
+sys.path.insert(0, os.path.join(_HERE, "..", "..", "library"))
 import autorig  # noqa: E402
 import studio  # noqa: E402
 
@@ -120,20 +121,20 @@ def build_set(H):
         for f in {f for v in geom["verts"] for f in v.link_faces}:
             f.material_index = mi
 
-    for i in range(70):
+    # реалистичные деревья из библиотеки (липы, берёзы, ели) — один меш на породу, экземпляры
+    import catalog_city
+    import parts
+    kinds = ["tree_linden_1", "tree_linden_2", "tree_linden_3", "tree_birch_1", "tree_birch_2", "tree_spruce_1"]
+    cache = {}
+    tcol = studio.collection("Trees")
+    for i in range(46):
         side = rng.choice((-1, 1))
-        x = side * rng.uniform(2.2, 14) * H
+        x = side * rng.uniform(3.5, 16) * H
         y = rng.uniform(-18, 18) * H
-        h = rng.uniform(2.5, 4.5) * H
-        g = bmesh.ops.create_cone(bm, cap_ends=True, segments=8, radius1=0.12 * H, radius2=0.09 * H, depth=h * 0.45)
-        for v in g["verts"]:
-            v.co += Vector((x, y, h * 0.225))
-        add(g, 2)
-        g = bmesh.ops.create_icosphere(bm, subdivisions=2, radius=h * 0.32)
-        for v in g["verts"]:
-            v.co.z *= 1.15
-            v.co += Vector((x, y, h * 0.7))
-        add(g, rng.choice((0, 1)))
+        k = kinds[i % len(kinds)] if i % 9 else "tree_spruce_1"
+        obj = parts.place(catalog_city.get(k), location=(x, y, 0), rot_deg=rng.uniform(0, 360), col=tcol,
+                          mesh_cache=cache)
+        obj.scale = (rng.uniform(0.85, 1.1),) * 3
     for i in range(40):
         side = rng.choice((-1, 1))
         x = side * rng.uniform(1.1, 3.0) * H
