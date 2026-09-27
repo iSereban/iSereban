@@ -463,8 +463,27 @@ def build(glb=None, height=None, turn=None):
             break
     if lm is None:
         lm = autorig.find_landmarks(obj)
+    return animate(obj, lm, H, chcol, prefix="chibi_walk_")
+
+
+def animate(obj, lm, H, chcol, prefix="chibi_walk_", rigid_head=False, attach_head=()):
+    """Скелет + парк + анимация + камеры для готового персонажа (стоит в начале координат лицом к −Y).
+    rigid_head — всё выше шеи жёстко на кости головы; attach_head — объекты (волосы), которые едут с головой."""
     many = len(obj.data.vertices) > 60000       # bone heat на тяжёлых сетках медленный — сразу по расстоянию
     arm = autorig.build_rig(obj, lm, name="Character_Rig", col=chcol, weights="distance" if many else "auto")
+    if rigid_head:
+        hv = [v.index for v in obj.data.vertices if v.co.z > lm["neck"] + 0.01 * H]
+        for g in obj.vertex_groups:
+            if g.name != "head":
+                g.remove(hv)
+        obj.vertex_groups["head"].add(hv, 1.0, 'REPLACE')
+    for o in attach_head:
+        mw = o.matrix_world.copy()
+        o.parent = arm
+        o.parent_type = 'BONE'
+        o.parent_bone = "head"
+        bpy.context.view_layer.update()
+        o.matrix_world = mw
     print("landmarks:", {k: (round(v, 3) if isinstance(v, float) else v) for k, v in lm.items()
                          if k in ("H", "crotch", "neck", "shoulder_z", "torso_hw")})
     build_set(H)
@@ -482,7 +501,7 @@ def build(glb=None, height=None, turn=None):
     engine = studio.arg("--engine", "EEVEE")
     studio.setup_render(engine, studio.RES_480, int(studio.arg("--samples", 16 if engine == "CYCLES" else 32)),
                         fps=FPS, motion_blur=False, exposure=-0.8)
-    studio.output_video("//render/chibi_walk_")
+    studio.output_video("//render/" + prefix)
     return arm
 
 

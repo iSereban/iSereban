@@ -176,6 +176,16 @@ def adultify(obj, lm):
             pb.scale = BONE_SCALE[key]
     bpy.context.view_layer.update()
     head_base = (arm.matrix_world @ arm.pose.bones["head"].head).copy()
+    # где оказались суставы после растяжки — по ним потом строится скелет для анимации
+    W = arm.matrix_world
+    pb = arm.pose.bones
+    joints = {"crotch": (W @ pb["hips"].head).z, "chest": (W @ pb["spine"].tail).z,
+              "neck": (W @ pb["head"].head).z - 0.02, "head_top": (W @ pb["head"].tail).z}
+    for sd in "LR":
+        joints[sd] = {"shoulder": W @ pb[f"upper_arm.{sd}"].head, "elbow": W @ pb[f"forearm.{sd}"].head,
+                      "wrist": W @ pb[f"hand.{sd}"].head, "hand": W @ pb[f"hand.{sd}"].tail,
+                      "hip": W @ pb[f"thigh.{sd}"].head, "knee": W @ pb[f"shin.{sd}"].head,
+                      "ankle": W @ pb[f"foot.{sd}"].head, "toe": W @ pb[f"foot.{sd}"].tail}
     dg = bpy.context.evaluated_depsgraph_get()
     me = bpy.data.meshes.new_from_object(obj.evaluated_get(dg), preserve_all_data_layers=True, depsgraph=dg)
     me.transform(obj.matrix_world)
@@ -192,7 +202,19 @@ def adultify(obj, lm):
     new = smooth_displacement(old_co, coords(obj), keep)
     obj.data.vertices.foreach_set("co", new.ravel())
     obj.data.update()
-    return head_base
+    return head_base, joints
+
+
+def woman_joints(joints, M, lm):
+    """Суставы женщины в формате *.joints.json (рост 1.0): растянутые суставы девочки → нормализация."""
+    k = 1.0 / HEIGHT
+    sc = M.to_scale()[0]
+    J = {"cx": (M @ Vector((lm["cx"], 0, 0))).x * k, "torso_hw": lm["torso_hw"] * 1.05 * sc * k}
+    for key in ("crotch", "chest", "neck", "head_top"):
+        J[key] = (M @ Vector((lm["cx"], 0, joints[key]))).z * k
+    for sd in "LR":
+        J[sd] = {n: [round(c * k, 4) for c in (M @ v)] for n, v in joints[sd].items()}
+    return J
 
 
 def normalize(obj, height):
@@ -542,9 +564,10 @@ def build(glb=None):
     with open(JOINTS, encoding="utf-8") as f:
         lm = autorig.landmarks_from_joints(json.load(f), 1.0)
     remove_hair_and_cap(obj, lm)
-    head_base = adultify(obj, lm)
+    head_base, joints = adultify(obj, lm)
     M = normalize(obj, HEIGHT)
     neck_z = (M @ head_base).z
+    J = woman_joints(joints, M, lm)
     cols = vertex_colors(obj)
     fb = face_boxes(obj, cols, neck_z)
     print("лицо: модель", [round(v, 3) for v in fb["model"]], "картинка", [round(v) for v in fb["image"]])
@@ -555,7 +578,7 @@ def build(glb=None):
             "grey": hair_material("Hair_Grey", (0.16, 0.15, 0.145), (0.40, 0.39, 0.38))}
     dg = bpy.context.evaluated_depsgraph_get()
     hair = build_hair(head, mats, bvh=BVHTree.FromObject(obj, dg))
-    return obj, hair
+    return obj, hair, J
 
 
 def main():
