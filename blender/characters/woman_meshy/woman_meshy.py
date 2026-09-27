@@ -88,7 +88,12 @@ def silhouette(px):
             span[y] = (xs.min(), xs.max())
     band = [y for y in range(top + int(0.3 * (bottom - top)), top + int(0.6 * (bottom - top))) if span[y, 0] >= 0]
     cx = float(np.mean([(span[y, 0] + span[y, 1]) / 2 for y in band]))
-    return dict(top=int(top), bottom=int(bottom), cx=cx, span=span)
+    # шея: самая узкая строка между головой и плечами
+    rng_rows = [y for y in range(top + int(0.10 * (bottom - top)), top + int(0.24 * (bottom - top))) if span[y, 0] >= 0]
+    neck = min(rng_rows, key=lambda y: span[y, 1] - span[y, 0]) if rng_rows else top + int(0.16 * (bottom - top))
+    head_rows = [y for y in range(top, neck) if span[y, 0] >= 0]
+    head_cx = float(np.mean([(span[y, 0] + span[y, 1]) / 2 for y in head_rows])) if head_rows else cx
+    return dict(top=int(top), bottom=int(bottom), cx=cx, span=span, neck=int(neck), head_cx=head_cx)
 
 
 def paint(obj, ref=REF_FRONT, align=None):
@@ -112,6 +117,22 @@ def paint(obj, ref=REF_FRONT, align=None):
     spx = (sil["bottom"] - sil["top"]) / H                     # пикселей на метр
     u_px = sil["cx"] + (co[:, 0] - cx_m) * spx
     v_px = sil["bottom"] - co[:, 2] * spx
+    # голову совмещаем отдельно: макушка ↔ макушка, шея ↔ шея, центр головы ↔ центр
+    zs = np.linspace(0.76 * H, 0.92 * H, 40)
+    widths = []
+    for z in zs:
+        band = co[np.abs(co[:, 2] - z) < 0.006 * H]
+        band = band[np.abs(band[:, 0] - cx_m) < 0.12 * H]
+        widths.append(np.ptp(band[:, 0]) if len(band) > 3 else 1e9)
+    neck_z = float(zs[int(np.argmin(widths))])
+    head = co[:, 2] > neck_z
+    hcx = float(np.median(co[head, 0]))
+    hs = (sil["neck"] - sil["top"]) / max(H - neck_z, 1e-6)
+    uh = sil["head_cx"] + (co[:, 0] - hcx) * hs
+    vh = sil["top"] + (H - co[:, 2]) * hs
+    t = smoothstep((co[:, 2] - (neck_z - 0.03 * H)) / (0.05 * H))
+    u_px = u_px * (1 - t) + uh * t
+    v_px = v_px * (1 - t) + vh * t
     ui = np.clip(u_px.astype(int), 0, w - 1)
     vi = np.clip(v_px.astype(int), 0, h - 1)
     span = sil["span"][vi]
