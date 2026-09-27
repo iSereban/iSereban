@@ -96,7 +96,7 @@ def silhouette(px):
     return dict(top=int(top), bottom=int(bottom), cx=cx, span=span, neck=int(neck), head_cx=head_cx)
 
 
-def paint(obj, ref=REF_FRONT, align=None):
+def paint(obj, ref=REF_FRONT, align=None, face_boxes=None, neck_z=None):
     """Раскрасить объект (меш, нормализован: ноги на Z=0, лицом в −Y)."""
     img, px = load_reference(ref)
     h, w, _ = px.shape
@@ -115,22 +115,33 @@ def paint(obj, ref=REF_FRONT, align=None):
     torso = co[(co[:, 2] > 0.5 * H) & (co[:, 2] < 0.75 * H)]
     cx_m = float(np.median(torso[:, 0]))
     spx = (sil["bottom"] - sil["top"]) / H                     # пикселей на метр
+    if neck_z is not None:
+        spx = (sil["bottom"] - sil["neck"]) / neck_z              # тело: стопы ↔ стопы, шея ↔ шея
     u_px = sil["cx"] + (co[:, 0] - cx_m) * spx
     v_px = sil["bottom"] - co[:, 2] * spx
-    # голову совмещаем отдельно: макушка ↔ макушка, шея ↔ шея, центр головы ↔ центр
-    zs = np.linspace(0.76 * H, 0.92 * H, 40)
-    widths = []
-    for z in zs:
-        band = co[np.abs(co[:, 2] - z) < 0.006 * H]
-        band = band[np.abs(band[:, 0] - cx_m) < 0.12 * H]
-        widths.append(np.ptp(band[:, 0]) if len(band) > 3 else 1e9)
-    neck_z = float(zs[int(np.argmin(widths))])
-    head = co[:, 2] > neck_z
-    hcx = float(np.median(co[head, 0]))
-    hs = (sil["neck"] - sil["top"]) / max(H - neck_z, 1e-6)
-    uh = sil["head_cx"] + (co[:, 0] - hcx) * hs
-    vh = sil["top"] + (H - co[:, 2]) * hs
-    t = smoothstep((co[:, 2] - (neck_z - 0.03 * H)) / (0.05 * H))
+    # голову совмещаем отдельно
+    if face_boxes:
+        # по прямоугольнику кожи лица: модель (x, z) ↔ картинка (пиксели)
+        fx0, fx1, fz0, fz1 = face_boxes["model"]
+        ix0, ix1, iy0, iy1 = face_boxes["image"]
+        uh = ix0 + (co[:, 0] - fx0) / max(fx1 - fx0, 1e-6) * (ix1 - ix0)
+        vh = iy1 - (co[:, 2] - fz0) / max(fz1 - fz0, 1e-6) * (iy1 - iy0)
+        nz = neck_z if neck_z is not None else fz0 - 0.05 * (fz1 - fz0)
+    else:
+        # макушка ↔ макушка, шея ↔ шея, центр головы ↔ центр
+        zs = np.linspace(0.76 * H, 0.92 * H, 40)
+        widths = []
+        for z in zs:
+            band = co[np.abs(co[:, 2] - z) < 0.006 * H]
+            band = band[np.abs(band[:, 0] - cx_m) < 0.12 * H]
+            widths.append(np.ptp(band[:, 0]) if len(band) > 3 else 1e9)
+        nz = float(zs[int(np.argmin(widths))])
+        head = co[:, 2] > nz
+        hcx = float(np.median(co[head, 0]))
+        hs = (sil["neck"] - sil["top"]) / max(H - nz, 1e-6)
+        uh = sil["head_cx"] + (co[:, 0] - hcx) * hs
+        vh = sil["top"] + (H - co[:, 2]) * hs
+    t = smoothstep((co[:, 2] - (nz - 0.02 * H)) / (0.03 * H))
     u_px = u_px * (1 - t) + uh * t
     v_px = v_px * (1 - t) + vh * t
     ui = np.clip(u_px.astype(int), 0, w - 1)
